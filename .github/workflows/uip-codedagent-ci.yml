@@ -1,0 +1,324 @@
+name: UiPath Coded Agent CI
+
+on:
+  workflow_call:
+    inputs:
+      agent_root:
+        description: Path to the coded-agent project root in the caller repository.
+        required: false
+        type: string
+        default: "."
+      python_version:
+        description: Python version for the runner.
+        required: false
+        type: string
+        default: "3.12"
+      uv_version:
+        description: uv version installed by astral-sh/setup-uv.
+        required: false
+        type: string
+        default: "latest"
+      node_version:
+        description: Node.js version used to install the UiPath CLI.
+        required: false
+        type: string
+        default: "20"
+      uip_cli_version:
+        description: npm version for @uipath/cli.
+        required: false
+        type: string
+        default: "latest"
+      workflow_repository:
+        description: Repository containing this reusable workflow and support scripts.
+        required: false
+        type: string
+        default: "UiPath-LAB-TEC/coded-agent-gh-action"
+      workflow_ref:
+        description: Ref used to checkout support scripts when patch-and-commit is enabled.
+        required: false
+        type: string
+        default: "main"
+      run_python_tests:
+        description: Run the caller repository Python test command.
+        required: false
+        type: boolean
+        default: false
+      python_test_command:
+        description: Shell command for optional Python tests.
+        required: false
+        type: string
+        default: "python -m unittest discover"
+      run_codedagent_smoke:
+        description: Run uip codedagent run with the configured input file.
+        required: false
+        type: boolean
+        default: true
+      entrypoint:
+        description: Optional entrypoint argument for uip codedagent run.
+        required: false
+        type: string
+        default: ""
+      input_file:
+        description: Input JSON file for uip codedagent run.
+        required: false
+        type: string
+        default: "input.json"
+      run_output_validation:
+        description: Run the caller repository output validation script.
+        required: false
+        type: boolean
+        default: true
+      validation_script:
+        description: Validation script path relative to agent_root.
+        required: false
+        type: string
+        default: "scripts/validate_codedagent_output.py"
+      deploy:
+        description: Deploy the coded agent after tests and validation pass.
+        required: false
+        type: boolean
+        default: false
+      deploy_target:
+        description: Deployment target. One of my-workspace, tenant, or folder.
+        required: false
+        type: string
+        default: "folder"
+      folder:
+        description: Folder name used when deploy_target is folder.
+        required: false
+        type: string
+        default: ""
+      version_strategy:
+        description: Version handling strategy. One of source or patch-and-commit.
+        required: false
+        type: string
+        default: "source"
+      version_commit_message:
+        description: Commit message for patch-and-commit version bumps.
+        required: false
+        type: string
+        default: "chore: bump coded agent version [skip ci]"
+      uipath_organization:
+        description: UiPath organization logical name.
+        required: true
+        type: string
+      uipath_tenant:
+        description: UiPath tenant name.
+        required: true
+        type: string
+      uipath_authority:
+        description: Optional identity authority URL for staging, alpha, or Automation Suite.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      UIPATH_CLIENT_ID:
+        required: true
+      UIPATH_CLIENT_SECRET:
+        required: true
+
+jobs:
+  coded-agent:
+    name: Test and deploy coded agent
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      AGENT_ROOT: ${{ inputs.agent_root }}
+      INPUT_FILE: ${{ inputs.input_file }}
+      VALIDATION_SCRIPT: ${{ inputs.validation_script }}
+      ENTRYPOINT: ${{ inputs.entrypoint }}
+      DEPLOY_TARGET: ${{ inputs.deploy_target }}
+      DEPLOY_FOLDER: ${{ inputs.folder }}
+      VERSION_STRATEGY: ${{ inputs.version_strategy }}
+      VERSION_COMMIT_MESSAGE: ${{ inputs.version_commit_message }}
+      UIPATH_ORGANIZATION: ${{ inputs.uipath_organization }}
+      UIPATH_TENANT: ${{ inputs.uipath_tenant }}
+      UIPATH_AUTHORITY: ${{ inputs.uipath_authority }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Checkout reusable workflow support scripts
+        if: ${{ inputs.deploy && inputs.version_strategy == 'patch-and-commit' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.workflow_repository }}
+          ref: ${{ inputs.workflow_ref }}
+          path: .coded-agent-gh-action
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ inputs.uv_version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install UiPath CLI
+        run: |
+          set -euo pipefail
+          npm install -g @uipath/cli@${{ inputs.uip_cli_version }}
+          uip tools install codedagent --output json
+          uip --version
+          uip codedagent --help
+
+      - name: Validate workflow inputs
+        run: |
+          set -euo pipefail
+
+          if [[ ! -d "${AGENT_ROOT}" ]]; then
+            echo "agent_root does not exist: ${AGENT_ROOT}" >&2
+            exit 1
+          fi
+
+          if [[ "${VERSION_STRATEGY}" != "source" && "${VERSION_STRATEGY}" != "patch-and-commit" ]]; then
+            echo "version_strategy must be source or patch-and-commit; got ${VERSION_STRATEGY}" >&2
+            exit 1
+          fi
+
+          if [[ -z "${UIPATH_ORGANIZATION}" || -z "${UIPATH_TENANT}" ]]; then
+            echo "uipath_organization and uipath_tenant are required." >&2
+            exit 1
+          fi
+
+          if [[ "${{ inputs.run_codedagent_smoke }}" == "true" && ! -f "${AGENT_ROOT}/${INPUT_FILE}" ]]; then
+            echo "input_file does not exist: ${AGENT_ROOT}/${INPUT_FILE}" >&2
+            exit 1
+          fi
+
+          if [[ "${{ inputs.run_output_validation }}" == "true" && ! -f "${AGENT_ROOT}/${VALIDATION_SCRIPT}" ]]; then
+            echo "validation_script does not exist: ${AGENT_ROOT}/${VALIDATION_SCRIPT}" >&2
+            exit 1
+          fi
+
+          if [[ "${{ inputs.deploy }}" == "true" && "${DEPLOY_TARGET}" == "folder" && -z "${DEPLOY_FOLDER}" ]]; then
+            echo "folder is required when deploy_target is folder." >&2
+            exit 1
+          fi
+
+          if [[ "${{ inputs.deploy }}" == "true" && "${VERSION_STRATEGY}" == "patch-and-commit" ]]; then
+            if [[ ! -f ".coded-agent-gh-action/scripts/bump_pyproject_patch.py" ]]; then
+              echo "Support script checkout failed: .coded-agent-gh-action/scripts/bump_pyproject_patch.py missing." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Install agent dependencies
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          uv sync
+
+      - name: Run optional Python tests
+        if: ${{ inputs.run_python_tests }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          eval "${{ inputs.python_test_command }}"
+
+      - name: Log in to UiPath
+        if: ${{ inputs.run_codedagent_smoke || inputs.deploy }}
+        env:
+          UIPATH_CLIENT_ID: ${{ secrets.UIPATH_CLIENT_ID }}
+          UIPATH_CLIENT_SECRET: ${{ secrets.UIPATH_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          login_args=(
+            login
+            --client-id env.UIPATH_CLIENT_ID
+            --client-secret env.UIPATH_CLIENT_SECRET
+            --organization "${UIPATH_ORGANIZATION}"
+            --tenant "${UIPATH_TENANT}"
+            --output json
+          )
+          if [[ -n "${UIPATH_AUTHORITY}" ]]; then
+            login_args+=(--authority "${UIPATH_AUTHORITY}")
+          fi
+          uip "${login_args[@]}"
+          uip login status --output json
+
+      - name: Run coded-agent smoke test
+        if: ${{ inputs.run_codedagent_smoke }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          entrypoint_args=()
+          if [[ -n "${ENTRYPOINT}" ]]; then
+            entrypoint_args+=("${ENTRYPOINT}")
+          fi
+          uip codedagent run "${entrypoint_args[@]}" --input-file "${INPUT_FILE}" --output-file codedagent-output.json
+
+      - name: Upload coded-agent output
+        if: ${{ always() && inputs.run_codedagent_smoke }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codedagent-output
+          path: ${{ inputs.agent_root }}/codedagent-output.json
+          if-no-files-found: ignore
+
+      - name: Validate coded-agent output
+        if: ${{ inputs.run_codedagent_smoke && inputs.run_output_validation }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          python "${VALIDATION_SCRIPT}" --output codedagent-output.json
+
+      - name: Bump patch version
+        if: ${{ inputs.deploy && inputs.version_strategy == 'patch-and-commit' }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          python "${GITHUB_WORKSPACE}/.coded-agent-gh-action/scripts/bump_pyproject_patch.py" --pyproject pyproject.toml | tee version-output.txt
+          uv lock
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml uv.lock
+          if git diff --cached --quiet; then
+            echo "Version strategy patch-and-commit produced no staged changes." >&2
+            exit 1
+          fi
+          git commit -m "${VERSION_COMMIT_MESSAGE}"
+          git push
+
+      - name: Upload version bump output
+        if: ${{ always() && inputs.deploy && inputs.version_strategy == 'patch-and-commit' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codedagent-version-bump
+          path: ${{ inputs.agent_root }}/version-output.txt
+          if-no-files-found: ignore
+
+      - name: Deploy coded agent
+        if: ${{ inputs.deploy }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          case "${DEPLOY_TARGET}" in
+            my-workspace)
+              uip codedagent deploy --my-workspace
+              ;;
+            tenant)
+              uip codedagent deploy --tenant
+              ;;
+            folder)
+              uip codedagent deploy --folder "${DEPLOY_FOLDER}"
+              ;;
+            *)
+              echo "deploy_target must be my-workspace, tenant, or folder; got ${DEPLOY_TARGET}" >&2
+              exit 1
+              ;;
+          esac
