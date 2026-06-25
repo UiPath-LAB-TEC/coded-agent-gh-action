@@ -63,6 +63,11 @@ on:
         required: false
         type: string
         default: "input.json"
+      prepare_input_command:
+        description: Optional shell command to prepare or rewrite input_file after uip login and before the coded-agent smoke test.
+        required: false
+        type: string
+        default: ""
       run_output_validation:
         description: Run the caller repository output validation script.
         required: false
@@ -129,6 +134,7 @@ jobs:
     env:
       AGENT_ROOT: ${{ inputs.agent_root }}
       INPUT_FILE: ${{ inputs.input_file }}
+      PREPARE_INPUT_COMMAND: ${{ inputs.prepare_input_command }}
       VALIDATION_SCRIPT: ${{ inputs.validation_script }}
       ENTRYPOINT: ${{ inputs.entrypoint }}
       DEPLOY_TARGET: ${{ inputs.deploy_target }}
@@ -250,6 +256,13 @@ jobs:
           fi
           uip "${login_args[@]}"
           uip login status --output json
+
+      - name: Run prepare input command
+        if: ${{ inputs.run_codedagent_smoke && inputs.prepare_input_command != '' }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          eval "${PREPARE_INPUT_COMMAND}"
 
       - name: Run coded-agent smoke test
         if: ${{ inputs.run_codedagent_smoke }}

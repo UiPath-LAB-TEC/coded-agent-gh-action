@@ -24,6 +24,7 @@ jobs:
       agent_root: .
       python_version: "3.12"
       input_file: input.json
+      prepare_input_command: uv run python create_test_attachment.py
       run_python_tests: false
       run_output_validation: true
       validation_script: scripts/validate_codedagent_output.py
@@ -67,6 +68,15 @@ uip codedagent run --input-file input.json --output-file codedagent-output.json
 ```
 
 If `entrypoint` is supplied, it is inserted between `run` and `--input-file`.
+
+If a repo needs to create a fresh test resource after `uip login`, set
+`prepare_input_command`. It runs from `agent_root` after login and before the
+smoke test:
+
+```yaml
+with:
+  prepare_input_command: uv run python create_test_attachment.py
+```
 
 Python tests are optional. Enable them per repo:
 

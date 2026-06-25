@@ -27,6 +27,7 @@ class WorkflowContractTests(unittest.TestCase):
             "run_codedagent_smoke",
             "entrypoint",
             "input_file",
+            "prepare_input_command",
             "run_output_validation",
             "validation_script",
             "deploy",
@@ -59,6 +60,21 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("uip codedagent run", text)
         self.assertIn('--input-file "${INPUT_FILE}"', text)
         self.assertIn("--output-file codedagent-output.json", text)
+
+    def test_runs_optional_prepare_input_command_after_login_before_smoke(self) -> None:
+        text = self.workflow_text
+        self.assertIn(
+            "PREPARE_INPUT_COMMAND: ${{ inputs.prepare_input_command }}",
+            text,
+        )
+        self.assertIn("Run prepare input command", text)
+        self.assertIn('eval "${PREPARE_INPUT_COMMAND}"', text)
+
+        login_index = text.index("- name: Log in to UiPath")
+        prepare_index = text.index("- name: Run prepare input command")
+        smoke_index = text.index("- name: Run coded-agent smoke test")
+        self.assertLess(login_index, prepare_index)
+        self.assertLess(prepare_index, smoke_index)
 
     def test_validates_output_and_uploads_artifacts(self) -> None:
         text = self.workflow_text
