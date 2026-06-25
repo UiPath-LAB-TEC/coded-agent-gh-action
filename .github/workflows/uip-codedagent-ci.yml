@@ -132,7 +132,7 @@ jobs:
       run:
         shell: bash
     env:
-      AUDIT_DIR: ${{ runner.temp }}/coded-agent-audit
+      AUDIT_DIR: ${{ github.workspace }}/.coded-agent-audit
       AGENT_ROOT: ${{ inputs.agent_root }}
       INPUT_FILE: ${{ inputs.input_file }}
       PREPARE_INPUT_COMMAND: ${{ inputs.prepare_input_command }}
@@ -498,5 +498,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: codedagent-audit
-          path: ${{ runner.temp }}/coded-agent-audit
+          path: ${{ github.workspace }}/.coded-agent-audit
           if-no-files-found: ignore

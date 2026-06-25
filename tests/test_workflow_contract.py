@@ -84,7 +84,8 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_emits_workflow_audit_summary_and_artifact(self) -> None:
         text = self.workflow_text
-        self.assertIn("AUDIT_DIR: ${{ runner.temp }}/coded-agent-audit", text)
+        self.assertIn("AUDIT_DIR: ${{ github.workspace }}/.coded-agent-audit", text)
+        self.assertNotIn("runner.temp", text)
         self.assertIn("- name: Initialize workflow audit", text)
         self.assertIn("- name: Audit tool versions", text)
         self.assertIn("- name: Audit prepared input file", text)
