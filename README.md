@@ -61,6 +61,13 @@ Use `uipath_authority` only for staging, alpha, or Automation Suite identity URL
 
 ## Test Behavior
 
+Before tests run, the workflow installs dependencies with `uv sync`, activates
+the generated `.venv`, and runs:
+
+```bash
+uip codedagent setup --force
+```
+
 The default required smoke test is:
 
 ```bash

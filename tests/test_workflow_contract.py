@@ -61,6 +61,18 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('--input-file "${INPUT_FILE}"', text)
         self.assertIn("--output-file codedagent-output.json", text)
 
+    def test_configures_codedagent_python_after_dependency_sync(self) -> None:
+        text = self.workflow_text
+        self.assertIn("Configure coded-agent Python", text)
+        self.assertIn("source .venv/bin/activate", text)
+        self.assertIn("uip codedagent setup --force --output json", text)
+
+        sync_index = text.index("- name: Install agent dependencies")
+        setup_index = text.index("- name: Configure coded-agent Python")
+        tests_index = text.index("- name: Run optional Python tests")
+        self.assertLess(sync_index, setup_index)
+        self.assertLess(setup_index, tests_index)
+
     def test_runs_optional_prepare_input_command_after_login_before_smoke(self) -> None:
         text = self.workflow_text
         self.assertIn(

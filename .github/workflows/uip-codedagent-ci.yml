@@ -229,6 +229,17 @@ jobs:
           set -euo pipefail
           uv sync
 
+      - name: Configure coded-agent Python
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f ".venv/bin/activate" ]]; then
+            echo "uv sync did not create the expected virtual environment at ${PWD}/.venv" >&2
+            exit 1
+          fi
+          source .venv/bin/activate
+          uip codedagent setup --force --output json
+
       - name: Run optional Python tests
         if: ${{ inputs.run_python_tests }}
         working-directory: ${{ inputs.agent_root }}
