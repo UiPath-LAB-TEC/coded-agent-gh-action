@@ -147,30 +147,30 @@ jobs:
 
     steps:
       - name: Checkout caller repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: true
 
       - name: Checkout reusable workflow support scripts
         if: ${{ inputs.deploy && inputs.version_strategy == 'patch-and-commit' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ inputs.workflow_repository }}
           ref: ${{ inputs.workflow_ref }}
           path: .coded-agent-gh-action
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           version: ${{ inputs.uv_version }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -288,7 +288,7 @@ jobs:
 
       - name: Upload coded-agent output
         if: ${{ always() && inputs.run_codedagent_smoke }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: codedagent-output
           path: ${{ inputs.agent_root }}/codedagent-output.json
@@ -320,7 +320,7 @@ jobs:
 
       - name: Upload version bump output
         if: ${{ always() && inputs.deploy && inputs.version_strategy == 'patch-and-commit' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: codedagent-version-bump
           path: ${{ inputs.agent_root }}/version-output.txt

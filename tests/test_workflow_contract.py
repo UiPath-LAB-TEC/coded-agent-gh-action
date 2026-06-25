@@ -46,10 +46,24 @@ class WorkflowContractTests(unittest.TestCase):
     def test_sets_up_uip_cli_and_codedagent_tool(self) -> None:
         text = self.workflow_text
         self.assertIn('default: "24"', text)
+        self.assertIn("actions/setup-node@v6", text)
         self.assertIn("npm install -g @uipath/cli@", text)
         self.assertIn("uip tools install codedagent", text)
         self.assertIn("uip --version", text)
         self.assertIn("uip codedagent --help", text)
+
+    def test_uses_node24_compatible_github_actions(self) -> None:
+        text = self.workflow_text
+        self.assertIn("actions/checkout@v5", text)
+        self.assertIn("actions/setup-python@v6", text)
+        self.assertIn("astral-sh/setup-uv@v8.2.0", text)
+        self.assertIn("actions/setup-node@v6", text)
+        self.assertIn("actions/upload-artifact@v6", text)
+        self.assertNotIn("actions/checkout@v4", text)
+        self.assertNotIn("actions/setup-python@v5", text)
+        self.assertNotIn("astral-sh/setup-uv@v5", text)
+        self.assertNotIn("actions/setup-node@v4", text)
+        self.assertNotIn("actions/upload-artifact@v4", text)
 
     def test_logs_in_and_runs_codedagent_with_input_file(self) -> None:
         text = self.workflow_text
