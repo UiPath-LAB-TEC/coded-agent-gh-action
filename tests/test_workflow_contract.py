@@ -76,6 +76,24 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('--input-file "${INPUT_FILE}"', text)
         self.assertIn("--output-file codedagent-output.json", text)
 
+    def test_splits_validation_into_auditable_steps(self) -> None:
+        text = self.workflow_text
+        self.assertIn("- name: Validate agent paths", text)
+        self.assertIn("- name: Validate deployment inputs", text)
+        self.assertNotIn("- name: Validate workflow inputs", text)
+
+    def test_emits_workflow_audit_summary_and_artifact(self) -> None:
+        text = self.workflow_text
+        self.assertIn("AUDIT_DIR: ${{ runner.temp }}/coded-agent-audit", text)
+        self.assertIn("- name: Initialize workflow audit", text)
+        self.assertIn("- name: Audit tool versions", text)
+        self.assertIn("- name: Audit prepared input file", text)
+        self.assertIn("- name: Audit coded-agent output file", text)
+        self.assertIn("- name: Upload workflow audit", text)
+        self.assertIn("ci-audit.json", text)
+        self.assertIn("GITHUB_STEP_SUMMARY", text)
+        self.assertIn("codedagent-audit", text)
+
     def test_configures_codedagent_python_after_dependency_sync(self) -> None:
         text = self.workflow_text
         self.assertIn("Configure coded-agent Python", text)
@@ -94,11 +112,11 @@ class WorkflowContractTests(unittest.TestCase):
             "PREPARE_INPUT_COMMAND: ${{ inputs.prepare_input_command }}",
             text,
         )
-        self.assertIn("Run prepare input command", text)
+        self.assertIn("Prepare smoke-test input", text)
         self.assertIn('eval "${PREPARE_INPUT_COMMAND}"', text)
 
         login_index = text.index("- name: Log in to UiPath")
-        prepare_index = text.index("- name: Run prepare input command")
+        prepare_index = text.index("- name: Prepare smoke-test input")
         smoke_index = text.index("- name: Run coded-agent smoke test")
         self.assertLess(login_index, prepare_index)
         self.assertLess(prepare_index, smoke_index)

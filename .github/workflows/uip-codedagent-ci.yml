@@ -132,6 +132,7 @@ jobs:
       run:
         shell: bash
     env:
+      AUDIT_DIR: ${{ runner.temp }}/coded-agent-audit
       AGENT_ROOT: ${{ inputs.agent_root }}
       INPUT_FILE: ${{ inputs.input_file }}
       PREPARE_INPUT_COMMAND: ${{ inputs.prepare_input_command }}
@@ -174,6 +175,75 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
 
+      - name: Initialize workflow audit
+        run: |
+          set -euo pipefail
+          mkdir -p "${AUDIT_DIR}"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          audit_dir = Path(os.environ["AUDIT_DIR"])
+          audit = {
+              "repository": os.environ.get("GITHUB_REPOSITORY"),
+              "workflow": os.environ.get("GITHUB_WORKFLOW"),
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "event_name": os.environ.get("GITHUB_EVENT_NAME"),
+              "ref": os.environ.get("GITHUB_REF"),
+              "sha": os.environ.get("GITHUB_SHA"),
+              "runner_os": os.environ.get("RUNNER_OS"),
+              "inputs": {
+                  "agent_root": os.environ["AGENT_ROOT"],
+                  "input_file": os.environ["INPUT_FILE"],
+                  "validation_script": os.environ["VALIDATION_SCRIPT"],
+                  "entrypoint_configured": bool(os.environ["ENTRYPOINT"]),
+                  "prepare_input_command_configured": bool(
+                      os.environ["PREPARE_INPUT_COMMAND"]
+                  ),
+                  "run_python_tests": "${{ inputs.run_python_tests }}",
+                  "run_codedagent_smoke": "${{ inputs.run_codedagent_smoke }}",
+                  "run_output_validation": "${{ inputs.run_output_validation }}",
+                  "deploy": "${{ inputs.deploy }}",
+                  "deploy_target": os.environ["DEPLOY_TARGET"],
+                  "deploy_folder": os.environ["DEPLOY_FOLDER"],
+                  "version_strategy": os.environ["VERSION_STRATEGY"],
+                  "uipath_organization": os.environ["UIPATH_ORGANIZATION"],
+                  "uipath_tenant": os.environ["UIPATH_TENANT"],
+                  "uipath_authority_configured": bool(os.environ["UIPATH_AUTHORITY"]),
+              },
+          }
+          (audit_dir / "ci-audit.json").write_text(
+              json.dumps(audit, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              rows = [
+                  ("Repository", audit["repository"]),
+                  ("Ref", audit["ref"]),
+                  ("SHA", audit["sha"]),
+                  ("Event", audit["event_name"]),
+                  ("Agent root", audit["inputs"]["agent_root"]),
+                  ("Input file", audit["inputs"]["input_file"]),
+                  ("Validator", audit["inputs"]["validation_script"]),
+                  ("Run Python tests", audit["inputs"]["run_python_tests"]),
+                  ("Run smoke test", audit["inputs"]["run_codedagent_smoke"]),
+                  ("Validate output", audit["inputs"]["run_output_validation"]),
+                  ("Deploy", audit["inputs"]["deploy"]),
+                  ("Deploy target", audit["inputs"]["deploy_target"]),
+                  ("Version strategy", audit["inputs"]["version_strategy"]),
+              ]
+              with open(summary_path, "a", encoding="utf-8") as summary:
+                  summary.write("## UiPath Coded Agent CI Audit\n\n")
+                  summary.write("| Field | Value |\n| --- | --- |\n")
+                  for key, value in rows:
+                      summary.write(f"| {key} | `{value}` |\n")
+                  summary.write("\n")
+          PY
+
       - name: Install UiPath CLI
         run: |
           set -euo pipefail
@@ -182,22 +252,32 @@ jobs:
           uip --version
           uip codedagent --help
 
-      - name: Validate workflow inputs
+      - name: Audit tool versions
+        run: |
+          set -euo pipefail
+          {
+            echo "python=$(python --version 2>&1)"
+            echo "uv=$(uv --version)"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "uip=$(uip --version)"
+          } | tee "${AUDIT_DIR}/tool-versions.txt"
+
+          {
+            echo "### Tool Versions"
+            echo
+            echo '```text'
+            cat "${AUDIT_DIR}/tool-versions.txt"
+            echo '```'
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Validate agent paths
         run: |
           set -euo pipefail
 
           if [[ ! -d "${AGENT_ROOT}" ]]; then
             echo "agent_root does not exist: ${AGENT_ROOT}" >&2
-            exit 1
-          fi
-
-          if [[ "${VERSION_STRATEGY}" != "source" && "${VERSION_STRATEGY}" != "patch-and-commit" ]]; then
-            echo "version_strategy must be source or patch-and-commit; got ${VERSION_STRATEGY}" >&2
-            exit 1
-          fi
-
-          if [[ -z "${UIPATH_ORGANIZATION}" || -z "${UIPATH_TENANT}" ]]; then
-            echo "uipath_organization and uipath_tenant are required." >&2
             exit 1
           fi
 
@@ -208,6 +288,20 @@ jobs:
 
           if [[ "${{ inputs.run_output_validation }}" == "true" && ! -f "${AGENT_ROOT}/${VALIDATION_SCRIPT}" ]]; then
             echo "validation_script does not exist: ${AGENT_ROOT}/${VALIDATION_SCRIPT}" >&2
+            exit 1
+          fi
+
+      - name: Validate deployment inputs
+        run: |
+          set -euo pipefail
+
+          if [[ "${VERSION_STRATEGY}" != "source" && "${VERSION_STRATEGY}" != "patch-and-commit" ]]; then
+            echo "version_strategy must be source or patch-and-commit; got ${VERSION_STRATEGY}" >&2
+            exit 1
+          fi
+
+          if [[ -z "${UIPATH_ORGANIZATION}" || -z "${UIPATH_TENANT}" ]]; then
+            echo "uipath_organization and uipath_tenant are required." >&2
             exit 1
           fi
 
@@ -268,12 +362,38 @@ jobs:
           uip "${login_args[@]}"
           uip login status --output json
 
-      - name: Run prepare input command
+      - name: Prepare smoke-test input
         if: ${{ inputs.run_codedagent_smoke && inputs.prepare_input_command != '' }}
         working-directory: ${{ inputs.agent_root }}
         run: |
           set -euo pipefail
           eval "${PREPARE_INPUT_COMMAND}"
+
+      - name: Audit prepared input file
+        if: ${{ inputs.run_codedagent_smoke }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          if [[ -f "${INPUT_FILE}" ]]; then
+            bytes=$(wc -c < "${INPUT_FILE}" | tr -d ' ')
+            sha256=$(sha256sum "${INPUT_FILE}" | awk '{print $1}')
+            {
+              echo "input_file=${INPUT_FILE}"
+              echo "bytes=${bytes}"
+              echo "sha256=${sha256}"
+            } | tee "${AUDIT_DIR}/input-file.txt"
+
+            {
+              echo "### Smoke-Test Input"
+              echo
+              echo "- Path: \`${INPUT_FILE}\`"
+              echo "- Size: \`${bytes}\` bytes"
+              echo "- SHA-256: \`${sha256}\`"
+              echo
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "input_file_missing=${INPUT_FILE}" | tee "${AUDIT_DIR}/input-file.txt"
+          fi
 
       - name: Run coded-agent smoke test
         if: ${{ inputs.run_codedagent_smoke }}
@@ -285,6 +405,32 @@ jobs:
             entrypoint_args+=("${ENTRYPOINT}")
           fi
           uip codedagent run "${entrypoint_args[@]}" --input-file "${INPUT_FILE}" --output-file codedagent-output.json
+
+      - name: Audit coded-agent output file
+        if: ${{ always() && inputs.run_codedagent_smoke }}
+        working-directory: ${{ inputs.agent_root }}
+        run: |
+          set -euo pipefail
+          if [[ -f "codedagent-output.json" ]]; then
+            bytes=$(wc -c < "codedagent-output.json" | tr -d ' ')
+            sha256=$(sha256sum "codedagent-output.json" | awk '{print $1}')
+            {
+              echo "output_file=codedagent-output.json"
+              echo "bytes=${bytes}"
+              echo "sha256=${sha256}"
+            } | tee "${AUDIT_DIR}/codedagent-output.txt"
+
+            {
+              echo "### Coded-Agent Output"
+              echo
+              echo "- Path: \`codedagent-output.json\`"
+              echo "- Size: \`${bytes}\` bytes"
+              echo "- SHA-256: \`${sha256}\`"
+              echo
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "output_file_missing=codedagent-output.json" | tee "${AUDIT_DIR}/codedagent-output.txt"
+          fi
 
       - name: Upload coded-agent output
         if: ${{ always() && inputs.run_codedagent_smoke }}
@@ -346,3 +492,11 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Upload workflow audit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: codedagent-audit
+          path: ${{ runner.temp }}/coded-agent-audit
+          if-no-files-found: ignore

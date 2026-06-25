@@ -109,6 +109,17 @@ python scripts/validate_codedagent_output.py --output codedagent-output.json
 
 Validation failures should print a clear error to stderr and exit non-zero.
 
+## Auditability
+
+The workflow writes a GitHub step summary and uploads a `codedagent-audit`
+artifact on every run. The audit artifact contains:
+
+- `ci-audit.json` with non-secret workflow inputs and GitHub run metadata.
+- `tool-versions.txt` with Python, uv, Node.js, npm, and `uip` versions.
+- `input-file.txt` with the smoke-test input path, byte size, and SHA-256 hash.
+- `codedagent-output.txt` with the output file byte size and SHA-256 hash when
+  the smoke test produces `codedagent-output.json`.
+
 ## Deployment
 
 Deployment runs only when `deploy: true` and all test steps pass.
