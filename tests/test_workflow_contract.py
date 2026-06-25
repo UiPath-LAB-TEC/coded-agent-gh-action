@@ -45,6 +45,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_sets_up_uip_cli_and_codedagent_tool(self) -> None:
         text = self.workflow_text
+        self.assertIn('default: "24"', text)
         self.assertIn("npm install -g @uipath/cli@", text)
         self.assertIn("uip tools install codedagent", text)
         self.assertIn("uip --version", text)
